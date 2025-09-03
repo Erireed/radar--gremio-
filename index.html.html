@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar de Atributos – Gremio de la Ruptura Férica</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --panel: #121218;
+      --text: #e8e6e3;
+      --accent: #f6c453; /* dorado */
+      --muted: #7a7a85;
+      --grid: #2a2a35;
+    }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+      height: 100%;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 24px auto;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin: 0 0 12px 0;
+      color: var(--text);
+      font-weight: 700;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #1c1c26;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .cell {
+      display: flex; flex-direction: column; gap: 6px;
+      background: #0f0f14;
+      border: 1px solid #191926;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    label { font-size: 0.8rem; color: var(--muted); }
+    input[type="number"] {
+      background: #0a0a0f;
+      color: var(--text);
+      border: 1px solid #222236;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+      outline: none;
+    }
+    input[type="number"]:focus { border-color: var(--accent); }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+    .btn {
+      background: var(--accent);
+      color: #1b1202;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid #2b2b37;
+    }
+    .note { font-size: 0.8rem; color: var(--muted); }
+    canvas { width: 100% !important; height: 520px !important; }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      canvas { height: 420px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel" style="margin-bottom:16px">
+      <h1>Radar de Atributos — Maestro del Gremio</h1>
+      <div class="note">Editá los valores (0–20). Se guardan en tu navegador. Ideal para embeber en Notion con <code>/embed</code>.</div>
+      <div class="grid" id="inputs"></div>
+      <div class="row">
+        <div class="note">Límite sugerido: 0 a 20. Podés ajustar el máximo del radar.</div>
+        <div>
+          <label for="maxVal" class="note">Máximo del radar</label>
+          <input id="maxVal" type="number" min="10" max="50" step="1" value="20">
+          <button class="btn" id="saveBtn">Guardar</button>
+          <button class="btn secondary" id="resetBtn">Reiniciar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="radar"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const LABELS = ['STR','DEX','CON','INT','WIS','CHA','MAG'];
+    const DEFAULTS = { STR: 8, DEX: 10, CON: 12, INT: 15, WIS: 14, CHA: 13, MAG: 16 };
+    const KEY = 'gremio_radar_stats_v1';
+    const KEY_MAX = 'gremio_radar_max_v1';
+
+    function loadStats() {
+      try {
+        const raw = localStorage.getItem(KEY);
+        return raw ? JSON.parse(raw) : { ...DEFAULTS };
+      } catch(e) { return { ...DEFAULTS }; }
+    }
+    function loadMax() {
+      const raw = localStorage.getItem(KEY_MAX);
+      const val = raw ? parseInt(raw, 10) : 20;
+      return Number.isFinite(val) ? val : 20;
+    }
+    function saveStats(stats) {
+      localStorage.setItem(KEY, JSON.stringify(stats));
+    }
+    function saveMax(max) {
+      localStorage.setItem(KEY_MAX, String(max));
+    }
+
+    const inputsRoot = document.getElementById('inputs');
+    const stats = loadStats();
+    const maxValInput = document.getElementById('maxVal');
+    maxValInput.value = loadMax();
+
+    // Build inputs
+    LABELS.forEach((label) => {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const lab = document.createElement('label');
+      lab.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0'; input.max = '50'; input.step = '1';
+      input.value = stats[label];
+      input.id = 'in_' + label;
+      cell.appendChild(lab);
+      cell.appendChild(input);
+      inputsRoot.appendChild(cell);
+    });
+
+    // Chart
+    const ctx = document.getElementById('radar').getContext('2d');
+    let chart = null;
+    function buildData() {
+      return LABELS.map(l => parseInt(document.getElementById('in_' + l).value, 10) || 0);
+    }
+    function render() {
+      const dataVals = buildData();
+      const maxR = parseInt(maxValInput.value, 10) || 20;
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: LABELS,
+          datasets: [{
+            label: 'Atributos del Maestro',
+            data: dataVals,
+            fill: true,
+            backgroundColor: 'rgba(246, 196, 83, 0.20)',
+            borderColor: 'rgba(246, 196, 83, 1)',
+            pointBackgroundColor: 'rgba(246, 196, 83, 1)',
+            pointBorderColor: '#0b0b0f',
+            pointRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: '#e8e6e3' } }
+          },
+          scales: {
+            r: {
+              angleLines: { color: 'var(--grid)' },
+              grid: { color: 'var(--grid)' },
+              pointLabels: { color: '#cfcfd6', font: { size: 12 } },
+              suggestedMin: 0,
+              suggestedMax: maxR,
+              ticks: { display: false }
+            }
+          }
+        }
+      });
+    }
+
+    // Wire buttons
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      const newStats = {};
+      LABELS.forEach(l => newStats[l] = parseInt(document.getElementById('in_' + l).value, 10) || 0);
+      saveStats(newStats);
+      saveMax(parseInt(maxValInput.value, 10) || 20);
+      render();
+    });
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      LABELS.forEach(l => document.getElementById('in_' + l).value = DEFAULTS[l]);
+      maxValInput.value = 20;
+      saveStats(DEFAULTS);
+      saveMax(20);
+      render();
+    });
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>
